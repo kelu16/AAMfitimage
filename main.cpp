@@ -1,9 +1,18 @@
 #include <iostream>
 #include <chrono>
+#include <stdio.h>
+#include <cstdlib>
+#include <string.h>
+#include <fstream>
+#include <dirent.h>
+#include <string.h>
 
 #include <opencv2/opencv.hpp>
 
 #include <../AAMlib/icaam.h>
+#include <../AAMlib/sicaam.h>
+#include <../AAMlib/wsicaam.h>
+#include <../AAMlib/robustaam.h>
 #include <../AAMlib/trainingdata.h>
 
 #define WINDOW_NAME "AAM-Example"
@@ -11,16 +20,19 @@
 using namespace std;
 using namespace cv;
 
-ICAAM aam;
+//Choose the fitting algorithm by using a different class
+RobustAAM aam;
 
 //Parameters for the fitting
 int numParameters = 15;          //Number of used shape parameters
-float fitThreshold = 0.05f;      //Termination condition
+float fitThreshold = 0.001f;      //Termination condition
 
 vector<string> descriptions;
 Mat groups;
 
+//Loads training data from a file and adds it the AAM
 void loadTrainingData(string fileName) {
+    cout<<"Load "<<fileName<<endl;
     TrainingData t;
     t.loadDataFromFile(fileName);
 
@@ -32,12 +44,27 @@ void loadTrainingData(string fileName) {
         groups = t.getGroups();
     }
 
-    i.convertTo(i, CV_32FC3);
-    cvtColor(i,i,CV_BGR2GRAY);
-
     aam.addTrainingData(p, i);
 }
 
+//Loads training data from a directory and adds it the AAM
+void loadTrainingDataFromDir(string dirName){
+    DIR *pDIR;
+    struct dirent *entry;
+    if((pDIR=opendir(dirName.c_str())) != NULL) {
+        while((entry = readdir(pDIR)) != NULL) {
+            //if( strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0 )
+            //string fileType = to_string(".xml");
+            //string fileName = str(entry->d_name);
+            if(strstr(entry->d_name, ".xml")) {
+                loadTrainingData(dirName+entry->d_name);
+            }
+        }
+        closedir(pDIR);
+    }
+}
+
+//Draws the shape points on the image
 Mat drawShape(Mat image, Mat points) {
     if(!aam.triangles.empty()) {
         for(int i=0; i<aam.triangles.rows; i++) {
@@ -57,69 +84,45 @@ Mat drawShape(Mat image, Mat points) {
 
 int main()
 {
-    string filePath_train = "/home/lucas/Dropbox/Diplomarbeit/Code/trainingdata/";
-    string filePath_test = "/home/lucas/Dropbox/Diplomarbeit/Code/testimages/";
+    string filePath_train = "/home/lucas/Radboud/090/annotated/";
+    string filePath_test = "/home/lucas/Radboud/090/male/Test_Occlusion/";
 
-    loadTrainingData(filePath_train+"data1.xml");
-    loadTrainingData(filePath_train+"data2.xml");
-    loadTrainingData(filePath_train+"data3.xml");
-    loadTrainingData(filePath_train+"data4.xml");
-    loadTrainingData(filePath_train+"data5.xml");
-    loadTrainingData(filePath_train+"data6.xml");
-    loadTrainingData(filePath_train+"data7.xml");
-    loadTrainingData(filePath_train+"data8.xml");
-    loadTrainingData(filePath_train+"data9.xml");
-    loadTrainingData(filePath_train+"data10.xml");
-    loadTrainingData(filePath_train+"data11.xml");
-    loadTrainingData(filePath_train+"data12.xml");
-    loadTrainingData(filePath_train+"data13.xml");
-    loadTrainingData(filePath_train+"data14.xml");
-    loadTrainingData(filePath_train+"data15.xml");
-    loadTrainingData(filePath_train+"data16.xml");
-    loadTrainingData(filePath_train+"data17.xml");
+    loadTrainingDataFromDir(filePath_train);
 
-    loadTrainingData(filePath_train+"Rafd090_03_Caucasian_male_angry_frontal.xml");
-    loadTrainingData(filePath_train+"Rafd090_03_Caucasian_male_contemptuous_frontal.xml");
-    loadTrainingData(filePath_train+"Rafd090_03_Caucasian_male_disgusted_frontal.xml");
-    loadTrainingData(filePath_train+"Rafd090_03_Caucasian_male_fearful_frontal.xml");
-    loadTrainingData(filePath_train+"Rafd090_03_Caucasian_male_happy_frontal.xml");
-    loadTrainingData(filePath_train+"Rafd090_03_Caucasian_male_neutral_frontal.xml");
-    loadTrainingData(filePath_train+"Rafd090_03_Caucasian_male_sad_frontal.xml");
-    loadTrainingData(filePath_train+"Rafd090_03_Caucasian_male_surprised_frontal.xml");
+    //optional: Set the variance of the training data represented by the Shape/Appearance Parameters
+    aam.setTargetShapeVariance(0.95);
+    aam.setTargetAppVariance(0.95);
 
-    loadTrainingData(filePath_train+"Rafd090_07_Caucasian_male_angry_frontal.xml");
-    loadTrainingData(filePath_train+"Rafd090_07_Caucasian_male_contemptuous_frontal.xml");
-    loadTrainingData(filePath_train+"Rafd090_07_Caucasian_male_disgusted_frontal.xml");
-    loadTrainingData(filePath_train+"Rafd090_07_Caucasian_male_fearful_frontal.xml");
-    loadTrainingData(filePath_train+"Rafd090_07_Caucasian_male_happy_frontal.xml");
-    loadTrainingData(filePath_train+"Rafd090_07_Caucasian_male_neutral_frontal.xml");
-    loadTrainingData(filePath_train+"Rafd090_07_Caucasian_male_sad_frontal.xml");
-    loadTrainingData(filePath_train+"Rafd090_07_Caucasian_male_surprised_frontal.xml");
+    //optional: Enable the preprocessing of images and set the used method to add robustness to the fitting
+    aam.setPreprocessImages(true);
+    aam.setProcessingMethod(AAM_PREPROC_DISTANCEMAPS);
+
+    //optional: Set the used error function to add robustness in case of occluded faces, only works with classes RobustAAM and WSICAAM
+    aam.setErrorFunction(AAM_ERR_TUKEY);
 
     //Train aam with Training Data
-    //optional: Set number of used Shape/Appearance Parameters
-    aam.setNumShapeParameters(numParameters);
-    aam.setNumAppParameters(numParameters);
     aam.train();
 
-    namedWindow(WINDOW_NAME, WINDOW_AUTOSIZE);
+    //Load the image the AAM should be fit to
+    Mat fittingImage = imread(filePath_test+"Rafd090_10_Caucasian_male_neutral_frontal.jpg");
+    if(!fittingImage.data) {
+       cout<<"Could not load image"<<endl;
+       return -1;
+    }
 
-    Mat fittingImage = imread(filePath_test+"8.jpg");
+    Mat image = fittingImage.clone();
 
     //Load image and initialize the fitting shape
     aam.setFittingImage(fittingImage);   //Converts image to right format
     aam.resetShape();    //Uses Viola-Jones Face Detection to initialize shape
 
-
     //Initialize with value > fitThreshold to enter the fitting loop
     float fittingChange = 20.0f;
     int steps = 0;
 
-    auto start = std::chrono::system_clock::now();
-
     //Terminate until fitting parameters change under predefined threshold
     // or 100 update steps have been executed
-    while(fittingChange > fitThreshold && steps<100) {
+    while(fittingChange > fitThreshold && steps < 100) {
         fittingChange = aam.fit();   //Execute single update step
         steps++;
         cout<<"Step "<<steps<<" || Error per pixel: "<<aam.getErrorPerPixel()<<" || Parameter change: "<<fittingChange<<endl;
@@ -132,12 +135,8 @@ int main()
         waitKey(0); //Execute next step only when key pressed
     }
 
-    auto end = std::chrono::system_clock::now();
-    auto duration = end-start;
-    cout<<duration.count()/steps/(double) CLOCKS_PER_SEC<<endl;
-
     //Draw the final triangulation and display the result
-    Mat image = fittingImage.clone();
+    //Mat image = fittingImage.clone();
     Mat p = aam.getFittingShape();
 
     image = drawShape(image, p);
@@ -152,6 +151,7 @@ int main()
     tr.saveDataToFile("out.xml");
 
     waitKey(0);
+
     return 0;
 }
 
